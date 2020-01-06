@@ -1,0 +1,278 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Lambda and API Gateway Template
+Parameters:
+  HostBucket:
+    Type: String
+Resources:
+  MyVPCStack:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      TemplateURL: >-
+        https://use-case-1-03012020-host.s3-eu-west-1.amazonaws.com/VPC
+  MyRDSStack:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      TemplateURL: >-
+        https://use-case-1-03012020-host.s3-eu-west-1.amazonaws.com/RDS
+      Parameters:
+        DBSubnetGroupName: !GetAtt 
+          - MyVPCStack
+          - Outputs.DBSubGroup
+        VPCSecurityGroups: !GetAtt 
+          - MyVPCStack
+          - Outputs.RDSSGRef
+  MySecretDB:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: MySecretForDB
+      Description: >-
+        This secret has a hardcoded password in SecretString (use
+        GenerateSecretString instead)
+      SecretString: >-
+        {"username":"root","password":"MyPassword","port":"port","dbname":"MyDatabase"}
+  ConnectRDS:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: connect_to_rds_function
+      Runtime: python3.7
+      Handler: connect_to_rds.connect
+      Timeout: 60
+      Role: !GetAtt 
+        - LambdaRole
+        - Arn
+      Code:
+          S3Bucket: !Ref HostBucket
+          S3Key: 'connect_to_rds.zip'
+      VpcConfig:
+        SecurityGroupIds:
+          - !GetAtt 
+            - MyVPCStack
+            - Outputs.InstanceSG
+        SubnetIds:
+          - !GetAtt 
+            - MyVPCStack
+            - Outputs.SubnetID1
+          - !GetAtt 
+            - MyVPCStack
+            - Outputs.SubnetID2
+      Environment:
+        Variables:
+          HOST: !GetAtt 
+            - MyRDSStack
+            - Outputs.DBEndpoint
+          SECRETS: !Ref MySecretDB
+  GetAccountDetails:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: get_account_details_function
+      Runtime: python3.7
+      Handler: get_account_details.get_account
+      Timeout: 60
+      Role: !GetAtt 
+        - LambdaRole
+        - Arn
+      Code:
+          S3Bucket: !Ref HostBucket
+          S3Key: 'get_account_details.zip'
+      VpcConfig:
+        SecurityGroupIds:
+          - !GetAtt 
+            - MyVPCStack
+            - Outputs.InstanceSG
+        SubnetIds:
+          - !GetAtt 
+            - MyVPCStack
+            - Outputs.SubnetID1
+          - !GetAtt 
+            - MyVPCStack
+            - Outputs.SubnetID2
+      Environment:
+        Variables:
+          HOST: !GetAtt 
+            - MyRDSStack
+            - Outputs.DBEndpoint
+          SECRETS: !Ref MySecretDB
+  GetTransactionDetails:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: get_transaction_details_function
+      Runtime: python3.7
+      Handler: get_transaction_details.get_transaction
+      Timeout: 60
+      Role: !GetAtt 
+        - LambdaRole
+        - Arn
+      Code:
+          S3Bucket: !Ref HostBucket
+          S3Key: 'get_transaction_details.zip'
+      VpcConfig:
+        SecurityGroupIds:
+          - !GetAtt 
+            - MyVPCStack
+            - Outputs.InstanceSG
+        SubnetIds:
+          - !GetAtt 
+            - MyVPCStack
+            - Outputs.SubnetID1
+          - !GetAtt 
+            - MyVPCStack
+            - Outputs.SubnetID2
+      Environment:
+        Variables:
+          HOST: !GetAtt 
+            - MyRDSStack
+            - Outputs.DBEndpoint
+          SECRETS: !Ref MySecretDB
+  LambdaRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/SecretsManagerReadWrite'
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+      Description: Lambda Role for VPC and SM Access
+      Path: /
+      RoleName: lambda_vpc_role_sm
+  APIGatewayInvokeLambdaRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: 'sts:AssumeRole'
+            Condition: {}
+      Path: /
+      Policies:
+        - PolicyName: ApiGateway
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                Resource:
+                  - '*'
+  RestAPI:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Description: API to get Account and Transaction Details
+      Name: Get_Details API
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      Body:
+        swagger: '2.0'
+        info:
+          version: '2019-12-24T05:35:23Z'
+          title: getDetails
+        host: 5muvx93436.execute-api.eu-west-1.amazonaws.com
+        basePath: /dev
+        schemes:
+          - https
+        paths:
+          /getaccountdetails:
+            get:
+              consumes:
+                - application/json
+              produces:
+                - application/json
+              parameters:
+                - name: Customer_ID
+                  in: query
+                  required: true
+                  type: string
+              responses:
+                '200':
+                  description: 200 response
+                  schema:
+                    $ref: '#/definitions/Empty'
+              security:
+                - api_key: []
+              x-amazon-apigateway-integration:
+                responses:
+                  "default":
+                    statusCode: "200"
+                uri: !Join 
+                  - ':'
+                  - - 'arn:aws:apigateway'
+                    - !Ref 'AWS::Region'
+                    - 'lambda:path/2015-03-31/functions/arn:aws:lambda'
+                    - !Ref 'AWS::Region'
+                    - !Ref 'AWS::AccountId'
+                    - function
+                    - !Join 
+                      - ''
+                      - - !Ref GetAccountDetails
+                        - /invocations
+                credentials: !GetAtt 
+                  - APIGatewayInvokeLambdaRole
+                  - Arn
+                passthroughBehavior: "when_no_templates"
+                requestTemplates:
+                  application/json: "{\n  \"Customer_ID\": \"$input.params('Customer_ID')\"}"
+                contentHandling: "CONVERT_TO_TEXT"
+                httpMethod: POST
+                type: aws
+          /gettransactiondetails:
+            get:
+              consumes:
+                - application/json
+              produces:
+                - application/json
+              parameters:
+                - name: Customer_ID
+                  in: query
+                  required: true
+                  type: string
+              responses:
+                '200':
+                  description: 200 response
+                  schema:
+                    $ref: '#/definitions/Empty'
+              security:
+                - api_key: []
+              x-amazon-apigateway-integration:
+                responses:
+                  "default":
+                    statusCode: "200"
+                uri: !Join 
+                  - ':'
+                  - - 'arn:aws:apigateway'
+                    - !Ref 'AWS::Region'
+                    - 'lambda:path/2015-03-31/functions/arn:aws:lambda'
+                    - !Ref 'AWS::Region'
+                    - !Ref 'AWS::AccountId'
+                    - function
+                    - !Join 
+                      - ''
+                      - - !Ref GetTransactionDetails
+                        - /invocations
+                credentials: !GetAtt 
+                  - APIGatewayInvokeLambdaRole
+                  - Arn
+                passthroughBehavior: "when_no_templates"
+                requestTemplates:
+                  application/json: "{\n  \"Customer_ID\": \"$input.params('Customer_ID')\"}"
+                contentHandling: "CONVERT_TO_TEXT"
+                httpMethod: POST
+                type: aws
+        securityDefinitions:
+          api_key:
+            type: apiKey
+            name: x-api-key
+            in: header
+        definitions:
+          Empty:
+            type: object
+            title: Empty Schema

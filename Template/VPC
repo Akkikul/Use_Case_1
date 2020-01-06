@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: 2010-09-09
+Resources:
+  MyVPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 172.31.0.0/16
+      InstanceTenancy: default
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+  subnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 172.31.16.0/20
+      AvailabilityZone: eu-west-1c
+      VpcId: !Ref MyVPC
+  subnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 172.31.32.0/20
+      AvailabilityZone: eu-west-1a
+      VpcId: !Ref MyVPC
+  DBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: Created from the RDS Management Console
+      SubnetIds:
+        - !Ref subnet2
+        - !Ref subnet1
+  MYRDSSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Created by RDS management console
+      VpcId: !Ref MyVPC
+  sgdefault:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: default VPC security group
+      VpcId: !Ref MyVPC
+  MYSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Security group for internet
+      VpcId: !Ref MyVPC
+  ingress1:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !Ref MYRDSSG
+      IpProtocol: tcp
+      FromPort: '3306'
+      ToPort: '3306'
+      SourceSecurityGroupId: !Ref MYSG
+      SourceSecurityGroupOwnerId: '114459804607'
+  ingress2:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !Ref MYSG
+      IpProtocol: '-1'
+      CidrIp: 0.0.0.0/0
+  egress1:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      GroupId: !Ref MYRDSSG
+      IpProtocol: '-1'
+      CidrIp: 0.0.0.0/0
+  egress2:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      GroupId: !Ref MYSG
+      IpProtocol: '-1'
+      CidrIp: 0.0.0.0/0
+  VPCEndpoint:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.secretsmanager'
+      SubnetIds:
+        - !Ref subnet1
+        - !Ref subnet2
+      SecurityGroupIds:
+        - !Ref MYSG
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      VpcId: !Ref MyVPC
+Outputs:
+  RDSSGRef:
+    Value: !Ref MYRDSSG
+    Export:
+      Name: !Join 
+        - ':'
+        - - !Ref 'AWS::StackName'
+          - RDSSGID
+  InstanceSG:
+    Value: !Ref MYSG
+    Export:
+      Name: !Join 
+        - ':'
+        - - !Ref 'AWS::StackName'
+          - MYSGID
+  DBSubGroup:
+    Value: !Ref DBSubnetGroup
+    Export:
+      Name: !Join 
+        - ':'
+        - - !Ref 'AWS::StackName'
+          - DBSubnetGroupID
+  SubnetID1:
+    Value: !Ref subnet1
+    Export:
+      Name: !Join 
+        - ':'
+        - - !Ref 'AWS::StackName'
+          - SubnetID1
+  SubnetID2:
+    Value: !Ref subnet2
+    Export:
+      Name: !Join 
+        - ':'
+        - - !Ref 'AWS::StackName'
+          - SubnetID2
+Description: VPC template
